@@ -232,7 +232,6 @@ public abstract class Bloom<T extends Comparable<T>> {
    */
   public boolean bloomFind(long hash) {
     int bucketIndex = (int)(hash >> 32) & (numBytes / BYTES_PER_BUCKET - 1);
-
     int key = (int)hash;
 
     setMask(key);
