@@ -26,7 +26,6 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 
-import org.apache.parquet.Preconditions;
 import org.apache.parquet.bytes.*;
 import org.apache.parquet.column.Encoding;
 import org.apache.parquet.column.ParquetProperties;
@@ -148,7 +147,7 @@ public abstract class Bloom<T extends Comparable<T>> {
     }
 
     // 32 bytes alignment, one bucket.
-    numBytes = (numBytes + 0x1F) & (~0x1F);
+    numBytes = (numBytes + BYTES_PER_BUCKET - 1) & ~(BYTES_PER_BUCKET - 1);
 
     ByteBuffer bytes = ByteBuffer.allocate(numBytes);
     this.bitset = bytes.array();
