@@ -22,7 +22,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.parquet.Preconditions;
 import org.apache.parquet.bytes.*;
@@ -76,6 +78,9 @@ public abstract class Bloom<T extends Comparable<T>> {
   // The underlying byte array for bloom filter bitset.
   private byte[] bitset;
 
+  // A cache to column distinct value (hash)
+  private Set<Long> elements;
+
   // List of byte input to construct the bloom filter.
   private final List<BytesInput> inputs= new ArrayList<>(4);
 
@@ -94,6 +99,7 @@ public abstract class Bloom<T extends Comparable<T>> {
     }
     this.hash = hash;
     this.algorithm = algorithm;
+    this.elements = new HashSet<>();
   }
 
   /**
@@ -250,7 +256,12 @@ public abstract class Bloom<T extends Comparable<T>> {
     int bits = (int)(-n * Math.log(p) / (Math.log(2) * Math.log(2)));
 
     // Get next power of 2 if bits is not power of 2.
-    return Integer.highestOneBit(bits) << 1;
+    bits = Integer.highestOneBit(bits) << 1;
+
+    if (bits < 0) {
+      bits = ParquetProperties.DEFAULT_DICTIONARY_PAGE_SIZE * 8;
+    }
+    return bits;
   }
 
   /**
@@ -268,12 +279,6 @@ public abstract class Bloom<T extends Comparable<T>> {
     return getBufferedSize();
   }
 
-  public String memUsageString(String prefix) {
-    return String.format(
-      "%s BloomDataWriter{\n" + "%s}\n",
-      prefix, String.valueOf(bitset.length)
-    );
-  }
 
   public static Bloom getBloomOnType(PrimitiveType.PrimitiveTypeName type,
                                      int size,
@@ -309,7 +314,11 @@ public abstract class Bloom<T extends Comparable<T>> {
    * @param value the column value to be inserted.
    */
   public void insert(T value) {
+    if (bitset == null) {
+      elements.add(hash(value));
+    } else {
       addElement(hash(value));
+    }
   }
 
   /**
@@ -318,25 +327,54 @@ public abstract class Bloom<T extends Comparable<T>> {
    * @return false if value is definitely not in set, and true means PROBABLY in set.
    */
   public boolean find(T value) {
+    // Elements are in cache, flush them.
+    if (!elements.isEmpty()) {
+      flush();
+    }
+
+    // No elements yet.
+    if (bitset == null) {
+      return false;
+    }
+
     return isContain(hash(value));
   }
 
+  /**
+   * Bloom filter bitset can be created lazily, flush() will set bits for
+   * all elements in cache. If bitset was already created and set, it do nothing.
+   */
+  public void flush() {
+    if (!elements.isEmpty() && bitset == null) {
+      initBitset(optimalNumOfBits(elements.size(), FPP) / 8);
+      for (long hash : elements) {
+        addElement(hash);
+      }
+      elements.clear();
+    }
+  }
+
   public static class BinaryBloom extends Bloom<Binary> {
+    final int initSlabSize = 1024;
     final int maxSlabSize = 64 * 1024;
+    PlainValuesWriter plainValuesWriter;
     public BinaryBloom(int size) {
       this(size, HASH.MURMUR3_X64_128, ALGORITHM.BLOCK);
     }
-
     public BinaryBloom(int size, HASH hash, ALGORITHM algorithm) {
       super(size, hash, algorithm);
+      plainValuesWriter = new PlainValuesWriter(initSlabSize, maxSlabSize, new HeapByteBufferAllocator());
     }
 
     @Override
     public long hash(Binary value) {
       try {
-        PlainValuesWriter plainValuesWriter = new PlainValuesWriter(value.length() + 4, maxSlabSize, new HeapByteBufferAllocator());
-        plainValuesWriter.writeInteger(value.length());
-        byte[] encoded = plainValuesWriter.getBytes().toByteArray();
+        byte encoded[];
+        synchronized (this) {
+          plainValuesWriter.writeInteger(value.length());
+          encoded = plainValuesWriter.getBytes().toByteArray();
+          plainValuesWriter.reset();
+        }
         switch (hash) {
           case MURMUR3_X64_128: return Murmur3.hash64(encoded);
           default:

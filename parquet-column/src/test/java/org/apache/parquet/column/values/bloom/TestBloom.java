@@ -23,7 +23,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.parquet.column.values.RandomStr;
 import org.apache.parquet.io.api.Binary;
@@ -50,12 +52,13 @@ public class TestBloom {
   @Test
   public void testBinaryBloom() throws IOException {
     Bloom.BinaryBloom binaryBloom = new Bloom.BinaryBloom(
-      Bloom.optimalNumOfBits(10000, 0.05)/8,
+      0,
       Bloom.HASH.MURMUR3_X64_128,
       Bloom.ALGORITHM.BLOCK);
+
     List<String> strings = new ArrayList<>();
     RandomStr randomStr = new RandomStr();
-    for(int i = 0; i<10000; i++) {
+    for(int i = 0; i<100000; i++) {
       String str = randomStr.get(10);
       strings.add(str);
       binaryBloom.insert(Binary.fromString(str));
