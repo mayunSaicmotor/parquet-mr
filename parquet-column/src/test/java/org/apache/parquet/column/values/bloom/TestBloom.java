@@ -42,7 +42,6 @@ public class TestBloom {
       intBloom.insert(i);
     }
 
-    intBloom.flush();
     for(int i = 0; i<10; i++) {
       assertTrue(intBloom.find(i));
     }
@@ -50,7 +49,10 @@ public class TestBloom {
 
   @Test
   public void testBinaryBloom() throws IOException {
-    Bloom.BinaryBloom binaryBloom = new Bloom.BinaryBloom(0, Bloom.HASH.MURMUR3_X64_128, Bloom.ALGORITHM.BLOCK);
+    Bloom.BinaryBloom binaryBloom = new Bloom.BinaryBloom(
+      Bloom.optimalNumOfBits(10000, 0.05)/8,
+      Bloom.HASH.MURMUR3_X64_128,
+      Bloom.ALGORITHM.BLOCK);
     List<String> strings = new ArrayList<>();
     RandomStr randomStr = new RandomStr();
     for(int i = 0; i<10000; i++) {
@@ -59,7 +61,6 @@ public class TestBloom {
       binaryBloom.insert(Binary.fromString(str));
     }
 
-    binaryBloom.flush();
     for(int i = 0; i<strings.size(); i++) {
       assertTrue(binaryBloom.find(Binary.fromString(strings.get(i))));
     }
