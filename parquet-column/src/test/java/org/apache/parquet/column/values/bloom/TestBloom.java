@@ -23,7 +23,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.parquet.column.values.RandomStr;
 import org.apache.parquet.io.api.Binary;
@@ -37,36 +39,37 @@ import static org.junit.Assert.assertTrue;
 public class TestBloom {
   @Test
   public void testIntBloom () throws IOException {
-    Bloom.IntBloom intBloom = new Bloom.IntBloom(279, Bloom.HASH.MURMUR3_X64_128, Bloom.ALGORITHM.BLOCK);
+    Bloom bloom = new Bloom(279, Bloom.HASH.MURMUR3_X64_128, Bloom.ALGORITHM.BLOCK);
     for(int i = 0; i<10; i++) {
-      intBloom.insert(i);
+      bloom.insert(bloom.hash(i));
     }
 
     for(int i = 0; i<10; i++) {
-      assertTrue(intBloom.find(i));
+      assertTrue(bloom.find(bloom.hash(i)));
     }
   }
 
   @Test
   public void testBinaryBloom() throws IOException {
-    Bloom.BinaryBloom binaryBloom = new Bloom.BinaryBloom(
-      Bloom.optimalNumOfBits(10000, 0.05)/8,
+    Bloom binaryBloom = new Bloom(
+      0,
       Bloom.HASH.MURMUR3_X64_128,
       Bloom.ALGORITHM.BLOCK);
+
     List<String> strings = new ArrayList<>();
     RandomStr randomStr = new RandomStr();
-    for(int i = 0; i<10000; i++) {
+    for(int i = 0; i<100000; i++) {
       String str = randomStr.get(10);
       strings.add(str);
-      binaryBloom.insert(Binary.fromString(str));
+      binaryBloom.insert(binaryBloom.hash(Binary.fromString(str)));
     }
 
     for(int i = 0; i<strings.size(); i++) {
-      assertTrue(binaryBloom.find(Binary.fromString(strings.get(i))));
+      assertTrue(binaryBloom.find(binaryBloom.hash(Binary.fromString(strings.get(i)))));
     }
 
     // exist can be true in a very low probability.
-    boolean exist = binaryBloom.find(Binary.fromString("not exist"));
+    boolean exist = binaryBloom.find(binaryBloom.hash(Binary.fromString("not exist")));
     assertFalse(exist);
   }
 
