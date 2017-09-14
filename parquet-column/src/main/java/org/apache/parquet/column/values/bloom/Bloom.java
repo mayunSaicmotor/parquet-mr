@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 
+import org.apache.parquet.Preconditions;
 import org.apache.parquet.bytes.*;
 import org.apache.parquet.column.Encoding;
 import org.apache.parquet.column.ParquetProperties;
@@ -34,15 +35,15 @@ import org.apache.parquet.io.api.Binary;
 import org.apache.parquet.schema.PrimitiveType;
 
 /**
- * Bloom Filter is a compat structure to indicate whether an item is not in set or probably in set. Bloom class is
- * underlying class of Bloom Filter which stores a bit set represents elements set, hash strategy and bloom filter
- * algorithm.
+ * Bloom Filter is a compact structure to indicate whether an item is not in set or probably
+ * in set. Bloom class is underlying class of Bloom Filter which stores a bit set represents
+ * elements set, hash strategy and bloom filter algorithm.
  *
- * Bloom Filter algorithm is implemented using block Bloom filters from Putze et al.'s "Cache-, Hash- and Space-Efficient Bloom
- * Filters". The basic idea is to hash the item to a tiny Bloom Filter which size fit a single cache line or smaller.
- * This implementation sets 8 bits in each tiny Bloom Filter. Tiny bloom filter are 32 bytes to take advantage of 32-bytes
- * SIMD instruction.
- *
+ * Bloom Filter algorithm is implemented using block Bloom filters from Putze et al.'s "Cache-,
+ * Hash- and Space-Efficient Bloom Filters". The basic idea is to hash the item to a tiny Bloom
+ * Filter which size fit a single cache line or smaller. This implementation sets 8 bits in
+ * each tiny Bloom Filter. Tiny bloom filter are 32 bytes to take advantage of 32-bytes SIMD
+ * instruction.
  */
 
 public abstract class Bloom<T extends Comparable<T>> {
@@ -68,7 +69,7 @@ public abstract class Bloom<T extends Comparable<T>> {
   // Bytes in a bucket.
   public static final int BYTES_PER_BUCKET = 32;
 
-  // Minimum bloom filter data size.
+  // Minimum bloom filter data size in byte.
   public static final int MINIMUM_BLOOM_SIZE = 256;
 
   // Hash strategy used in this bloom filter.
@@ -77,13 +78,17 @@ public abstract class Bloom<T extends Comparable<T>> {
   // Algorithm applied of this bloom filter.
   public ALGORITHM bloomFilterAlgorithm = ALGORITHM.BLOCK;
 
-  private HashSet<Long> elements = new HashSet<>();
+  // A hash set to cache the distinct value from column.
+  private HashSet<Long> elements = new HashSet<Long>();
 
+  // The underlying byte array for bloom filter bitset.
   private byte[] bitset;
+
+  // The size of bitset in byte.
   private int numBytes;
 
-  private int mask[] = new int[8];
-  private List<BytesInput> inputs= new ArrayList<>(4);
+  // List of byte input to construct the bloom filter.
+  private final List<BytesInput> inputs= new ArrayList<>(4);
 
   /**
    * Constructor of bloom filter, if numBytes is zero, bloom filter bitset
@@ -137,7 +142,7 @@ public abstract class Bloom<T extends Comparable<T>> {
    * Create a new bitset for bloom filter, at least 256 bits will be create.
    * @param numBytes number of bytes for bit set.
    */
-  public void initBitset(int numBytes) {
+  private void initBitset(int numBytes) {
     if (numBytes < MINIMUM_BLOOM_SIZE) {
       numBytes = MINIMUM_BLOOM_SIZE;
     }
@@ -146,21 +151,12 @@ public abstract class Bloom<T extends Comparable<T>> {
       numBytes = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE;
     }
 
-    // 32 bytes alignment, one bucket.
+    // One bucket alignment.
     numBytes = (numBytes + BYTES_PER_BUCKET - 1) & ~(BYTES_PER_BUCKET - 1);
 
     ByteBuffer bytes = ByteBuffer.allocate(numBytes);
     this.bitset = bytes.array();
     this.numBytes = numBytes;
-  }
-
-  /**
-   * Create bitset from a given byte array.
-   * @param bitset Given bitset for bloom filter.
-   */
-  public void initBitset(byte[] bitset) {
-    this.bitset = bitset;
-    this.numBytes = bitset.length;
   }
 
   /**
@@ -184,11 +180,13 @@ public abstract class Bloom<T extends Comparable<T>> {
     return BytesInput.concat(inputs);
   }
 
-  private void setMask(int key) {
+  private int[] setMask(int key) {
+    // The block based algorithm needs 8 odd SALT values to calculate index
+    // of bit to set in block.
     final int SALT[] = {0x47b6137b, 0x44974d91, 0x8824ad5b, 0xa2b7289d,
       0x705495c7, 0x2df1424b, 0x9efc4947, 0x5c6bfb31};
 
-    Arrays.fill(mask, 0);
+    int mask[] = new int[8];
 
     for (int i = 0; i < 8; ++i) {
       mask[i] = key * SALT[i];
@@ -202,6 +200,7 @@ public abstract class Bloom<T extends Comparable<T>> {
       mask[i] = 0x1 << mask[i];
     }
 
+    return mask;
   }
 
   /**
@@ -213,7 +212,8 @@ public abstract class Bloom<T extends Comparable<T>> {
     int bucketIndex = (int)(hash >> 32) & (numBytes / BYTES_PER_BUCKET - 1);
     int key = (int)hash;
 
-    setMask(key);
+    // Calculate bit mask for bucket.
+    int mask[] = setMask(key);
 
     for (int i = 0; i < 8; i++) {
       int bitsetIndex = bucketIndex * BYTES_PER_BUCKET + i * 4;
@@ -230,10 +230,15 @@ public abstract class Bloom<T extends Comparable<T>> {
    * @return false if element is must not in set, true if element probably in set.
    */
   public boolean bloomFind(long hash) {
+    if (!elements.isEmpty()) {
+      flush();
+    }
+
     int bucketIndex = (int)(hash >> 32) & (numBytes / BYTES_PER_BUCKET - 1);
     int key = (int)hash;
 
-    setMask(key);
+    // Calculate bit mask for bucket.
+    int mask[] = setMask(key);
 
     for (int i = 0; i < 8; i++) {
       byte set = 0;
@@ -271,8 +276,12 @@ public abstract class Bloom<T extends Comparable<T>> {
    * @return optimal number of bits of given n and p.
    */
   public static int optimalNumOfBits(long n, double p) {
+    Preconditions.checkArgument((p > 0.0 && p < 1.0),
+      "FPP should be less than 1.0 and great than 0.0");
+
     int bits = (int)(-n * Math.log(p) / (Math.log(2) * Math.log(2)));
 
+    // Get next power of 2 if bits is not power of 2.
     bits --;
     bits |= bits >> 1;
     bits |= bits >> 2;
@@ -282,15 +291,6 @@ public abstract class Bloom<T extends Comparable<T>> {
     bits++;
 
     return bits;
-  }
-
-
-  /**
-   * Element is represented by hash in bloom filter. The hash function takes plain encoding
-   * of element as input.
-   */
-  public Encoding getEncoding() {
-    return Encoding.PLAIN;
   }
 
   /**
@@ -328,9 +328,7 @@ public abstract class Bloom<T extends Comparable<T>> {
       case DOUBLE:
         return new DoubleBloom(size, hash, algorithm);
       case BINARY:
-        return new BinaryBloom(size, hash, algorithm);
       case INT96:
-        return new BinaryBloom(size, hash, algorithm);
       case FIXED_LEN_BYTE_ARRAY:
         return new BinaryBloom(size, hash, algorithm);
       default:
@@ -367,7 +365,10 @@ public abstract class Bloom<T extends Comparable<T>> {
   }
 
   public static class BinaryBloom extends Bloom<Binary> {
-    private CapacityByteArrayOutputStream arrayout = new CapacityByteArrayOutputStream(1024, 64 * 1024, new HeapByteBufferAllocator());
+    final int initSlabSize = 1024;
+    final int maxSlabSize = 64*1024;
+    private CapacityByteArrayOutputStream arrayout = new CapacityByteArrayOutputStream(initSlabSize,
+      maxSlabSize, new HeapByteBufferAllocator());
     private LittleEndianDataOutputStream out = new LittleEndianDataOutputStream(arrayout);
 
     public BinaryBloom(int size) {
