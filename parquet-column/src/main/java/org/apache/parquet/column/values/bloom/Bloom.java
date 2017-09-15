@@ -18,6 +18,7 @@
  */
 package org.apache.parquet.column.values.bloom;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -87,10 +88,6 @@ public class Bloom {
    */
   private final List<BytesInput> inputs= new ArrayList<>(4);
 
-  final int INIT_SLAB_SIZE = 1024;
-  final int MAX_SLAB_SIZE = 64 * 1024;
-  PlainValuesWriter plainValuesWriter;
-
   /**
    * Constructor of bloom filter, if numBytes is zero, bloom filter bitset
    * will be created lazily and the number of bytes will be calculated through
@@ -103,12 +100,11 @@ public class Bloom {
   public Bloom(int numBytes, HASH hash, ALGORITHM algorithm) {
     if (numBytes != 0) {
       initBitset(numBytes);
+    } else {
+      this.elements = new HashSet<>();
     }
     this.hash = hash;
     this.algorithm = algorithm;
-    this.elements = new HashSet<>();
-    plainValuesWriter = new PlainValuesWriter(INIT_SLAB_SIZE,
-      MAX_SLAB_SIZE, new HeapByteBufferAllocator());
   }
 
   /**
@@ -122,9 +118,6 @@ public class Bloom {
     this.bitset = bitset;
     this.hash = hash;
     this.algorithm = algorithm;
-    this.elements = new HashSet<>();
-    plainValuesWriter = new PlainValuesWriter(INIT_SLAB_SIZE,
-      MAX_SLAB_SIZE, new HeapByteBufferAllocator());
   }
 
   /**
@@ -142,9 +135,6 @@ public class Bloom {
     }
     this.hash = hash;
     this.algorithm = algorithm;
-    this.elements = new HashSet<>();
-    plainValuesWriter = new PlainValuesWriter(INIT_SLAB_SIZE,
-      MAX_SLAB_SIZE, new HeapByteBufferAllocator());
   }
 
   /**
@@ -271,13 +261,13 @@ public class Bloom {
     Preconditions.checkArgument((p > 0.0 && p < 1.0),
       "FPP should be less than 1.0 and great than 0.0");
 
-    final double m = -8 * n / Math.log(1 - Math.pow(p, 1.0 / 8));
-    final double max = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE << 3;
-    int numBits = (int)m;
+    final double M = -8 * n / Math.log(1 - Math.pow(p, 1.0 / 8));
+    final double MAX = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE << 3;
+    int numBits = (int)M;
 
     // Handle overflow.
-    if (Math.log(m) > Math.log(max) || m < 0) {
-      numBits = (int)max;
+    if (M > MAX || M < 0) {
+      numBits = (int)MAX;
     }
 
     // Get next power of 2 if bits is not power of 2.
@@ -303,7 +293,7 @@ public class Bloom {
 
   /**
    * Compute hash for int value by using its plain encoding result.
-   * @param value the column value to be compute
+   * @param value the value to hash
    * @return hash result
    */
   public long hash(int value) {
@@ -318,7 +308,7 @@ public class Bloom {
 
   /**
    * Compute hash for long value by using its plain encoding result.
-   * @param value the column value to be compute
+   * @param value the value to hash
    * @return hash result
    */
   public long hash(long value) {
@@ -333,7 +323,7 @@ public class Bloom {
 
   /**
    * Compute hash for double value by using its plain encoding result.
-   * @param value the column value to be compute
+   * @param value the value to hash
    * @return hash result
    */
   public long hash(double value) {
@@ -348,7 +338,7 @@ public class Bloom {
 
   /**
    * Compute hash for float value by using its plain encoding result.
-   * @param value the column value to be compute
+   * @param value the value to hash
    * @return hash result
    */
   public long hash(float value) {
@@ -363,20 +353,19 @@ public class Bloom {
 
   /**
    * Compute hash for Binary value by using its plain encoding result.
-   * @param value the column value to be compute
+   * @param value the value to hash
    * @return hash result
    */
   public long hash(Binary value) {
-    byte encoded[];
     try {
-      synchronized (this) {
-        plainValuesWriter.writeBytes(value);
-        encoded = plainValuesWriter.getBytes().toByteArray();
-        plainValuesWriter.reset();
-      }
+      ByteBuffer plain = ByteBuffer.allocate(Integer.SIZE/Byte.SIZE);
+      plain.order(ByteOrder.LITTLE_ENDIAN).putInt(value.length());
+      ByteArrayOutputStream baos = new ByteArrayOutputStream(value.length() + 4);
+      baos.write(plain.array(), 0, 4);
+      value.writeTo(baos);
       switch (hash) {
         case MURMUR3_X64_128:
-          return Murmur3.hash64(encoded);
+          return Murmur3.hash64(baos.toByteArray());
         default:
           throw new RuntimeException("Not support hash strategy");
       }
@@ -387,7 +376,7 @@ public class Bloom {
 
   /**
    * Insert element to set represented by bloom bitset.
-   * @param value the column value to be inserted.
+   * @param value the value to insert into bloom filter..
    */
   public void insert(long value) {
     if (bitset == null) {
@@ -404,7 +393,7 @@ public class Bloom {
    */
   public boolean find(long hash) {
     // Elements are in cache, flush them firstly.
-    if (!elements.isEmpty()) {
+    if (elements != null && !elements.isEmpty()) {
       flush();
     }
 
