@@ -69,10 +69,10 @@ public class Bloom {
   public static final int BYTES_PER_BUCKET = 32;
 
   // Hash strategy used in this bloom filter.
-  public HASH hash = HASH.MURMUR3_X64_128;
+  public final HASH hash;
 
   // Algorithm applied of this bloom filter.
-  public ALGORITHM algorithm = ALGORITHM.BLOCK;
+  public final ALGORITHM algorithm;
 
   // The underlying byte array for bloom filter bitset.
   private byte[] bitset;
@@ -80,7 +80,11 @@ public class Bloom {
   // A cache to column distinct value (hash)
   private Set<Long> elements;
 
-  // List of byte input to construct the bloom filter.
+  /*
+   *List of byte input to construct the bloom filter. It generally contains
+   * bytes representation of length of bitset, hash strategy, algorithm and
+   * bitset.
+   */
   private final List<BytesInput> inputs= new ArrayList<>(4);
 
   final int INIT_SLAB_SIZE = 1024;
@@ -108,7 +112,8 @@ public class Bloom {
   }
 
   /**
-   * Construct the bloom filter with given bit set.
+   * Construct the bloom filter with given bit set, it is used
+   * when reconstruct bloom filter from parquet file.
    * @param bitset The given bitset to construct bloom filter.
    * @param hash The hash strategy bloom filter apply.
    * @param algorithm The algorithm of bloom filter.
@@ -151,12 +156,14 @@ public class Bloom {
       numBytes = BYTES_PER_BUCKET;
     }
 
+    // Get next power of 2 if it is not power of 2.
+    if ((numBytes & (numBytes - 1)) != 0 ) {
+      numBytes = Integer.highestOneBit(numBytes) << 1;
+    }
+
     if (numBytes > ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE) {
       numBytes = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE;
     }
-
-    // One bucket alignment.
-    numBytes = (numBytes + BYTES_PER_BUCKET - 1) & ~(BYTES_PER_BUCKET - 1);
 
     ByteBuffer bytes = ByteBuffer.allocate(numBytes);
     this.bitset = bytes.array();
@@ -295,7 +302,7 @@ public class Bloom {
   }
 
   /**
-   * Compute hash for double value by using its plain encoding result.
+   * Compute hash for int value by using its plain encoding result.
    * @param value the column value to be compute
    * @return hash result
    */
@@ -310,7 +317,7 @@ public class Bloom {
   }
 
   /**
-   * Compute hash for double value by using its plain encoding result.
+   * Compute hash for long value by using its plain encoding result.
    * @param value the column value to be compute
    * @return hash result
    */
@@ -420,7 +427,7 @@ public class Bloom {
       for (long hash : elements) {
         addElement(hash);
       }
-      
+
       elements.clear();
     }
   }
