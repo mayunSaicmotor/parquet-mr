@@ -30,7 +30,6 @@ import java.util.Set;
 import org.apache.parquet.Preconditions;
 import org.apache.parquet.bytes.*;
 import org.apache.parquet.column.ParquetProperties;
-import org.apache.parquet.column.values.plain.PlainValuesWriter;
 import org.apache.parquet.io.ParquetEncodingException;
 import org.apache.parquet.io.api.Binary;
 
@@ -410,7 +409,7 @@ public class Bloom {
    * all elements in cache. If bitset was already created and set, it do nothing.
    */
   public void flush() {
-    if (!elements.isEmpty() && bitset == null) {
+    if (elements != null && bitset == null) {
       initBitset(optimalNumOfBits(elements.size(), FPP) / 8);
 
       for (long hash : elements) {
