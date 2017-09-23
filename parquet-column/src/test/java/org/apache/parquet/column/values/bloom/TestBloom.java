@@ -69,15 +69,32 @@ public class TestBloom {
     }
 
     // exist can be true in a very low probability.
-    boolean exist = binaryBloom.find(binaryBloom.hash(Binary.fromString("not exist")));
-    assertFalse(exist);
+    for (int i = 0; i < 10; i++) {
+      String str = randomStr.get(8);
+      assertFalse(binaryBloom.find(binaryBloom.hash(Binary.fromString(str))));
+    }
+
   }
 
   @Test
   public void testMurmur3() throws IOException {
-    byte[] bytes = {0x12, 0x34, 0x56, 0x78};
-    long hash = Murmur3.hash64(bytes);
-    assertEquals(hash, -420773712042568267l);
+    byte[] testBytes1 = {0x12};
+    int hash32 = Murmur3.hash32(testBytes1);
+    long hash64 = Murmur3.hash64(testBytes1);
+    assertEquals(hash32, -669463081);
+    assertEquals(hash64, 793934441656058631l);
 
+
+    byte[] testBytes2 = {0x12, 0x34, 0x56, 0x78};
+    hash32 = Murmur3.hash32(testBytes2);
+    hash64 = Murmur3.hash64(testBytes2);
+    assertEquals(hash32, 1430327166);
+    assertEquals(hash64, -420773712042568267l);
+
+    byte[] testBytes3 = {1, 2, 3, 4, 5, 6, 7, 8};
+    hash32 = Murmur3.hash32(testBytes3);
+    hash64 = Murmur3.hash64(testBytes3);
+    assertEquals(hash32, -303231278);
+    assertEquals(hash64, 836618412739502086l);
   }
 }

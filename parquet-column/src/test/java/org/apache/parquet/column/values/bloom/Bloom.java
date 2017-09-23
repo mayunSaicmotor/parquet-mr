@@ -20,11 +20,11 @@ package org.apache.parquet.column.values.bloom;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.ArrayList;
+import java.nio.IntBuffer;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 import org.apache.parquet.Preconditions;
@@ -60,7 +60,7 @@ public class Bloom {
    * Default false positive probability value use to calculate optimal number of bits
    * used by bloom filter.
    */
-  public final double FPP = 0.05;
+  public final double DEFAULT_FPP = 0.01;
 
   // Bloom filter data header, including number of bytes, hash strategy and algorithm.
   public static final int HEADER_SIZE = 12;
@@ -77,22 +77,18 @@ public class Bloom {
   // The underlying byte array for bloom filter bitset.
   private byte[] bitset;
 
+  // A integer array buffer of underlying bitset help setting bits.
+  private IntBuffer intBuffer;
+
   // A cache to column distinct value (hash)
   private Set<Long> elements;
-
-  /*
-   *List of byte input to construct the bloom filter. It generally contains
-   * bytes representation of length of bitset, hash strategy, algorithm and
-   * bitset.
-   */
-  private final List<BytesInput> inputs= new ArrayList<>(4);
 
   /**
    * Constructor of bloom filter, if numBytes is zero, bloom filter bitset
    * will be created lazily and the number of bytes will be calculated through
    * distinct values in cache.
    * @param numBytes The number of bytes for bloom filter bitset, set to zero can
-   *                 let it calculate number automatically by using default FPP.
+   *                 let it calculate number automatically by using default DEFAULT_FPP.
    * @param hash The hash strategy bloom filter apply.
    * @param algorithm The algorithm of bloom filter.
    */
@@ -115,6 +111,7 @@ public class Bloom {
    */
   public Bloom(byte[] bitset, HASH hash, ALGORITHM algorithm) {
     this.bitset = bitset;
+    this.intBuffer = ByteBuffer.wrap(bitset).asIntBuffer();
     this.hash = hash;
     this.algorithm = algorithm;
   }
@@ -132,6 +129,7 @@ public class Bloom {
     } else {
       this.bitset = input.array();
     }
+    this.intBuffer = ByteBuffer.wrap(bitset).asIntBuffer();
     this.hash = hash;
     this.algorithm = algorithm;
   }
@@ -146,7 +144,7 @@ public class Bloom {
     }
 
     // Get next power of 2 if it is not power of 2.
-    if ((numBytes & (numBytes - 1)) != 0 ) {
+    if ((numBytes & (numBytes - 1)) != 0) {
       numBytes = Integer.highestOneBit(numBytes) << 1;
     }
 
@@ -154,34 +152,34 @@ public class Bloom {
       numBytes = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE;
     }
 
-    ByteBuffer bytes = ByteBuffer.allocate(numBytes);
-    this.bitset = bytes.array();
+    this.bitset = new byte[numBytes];
+    this.intBuffer = ByteBuffer.wrap(bitset).asIntBuffer();
   }
 
   /**
-   * @return Bytes in buffered in this bloom filter.
+   * Write bloom filter to output stream. A bloom filter structure should include
+   * bitset length, hash strategy, algorithm, and bitset.
+   * @param out output stream to write
    */
-  public BytesInput getBytes() {
-    inputs.clear();
+  public void writeTo(OutputStream out) throws IOException {
+    Preconditions.checkArgument(bitset.length > 0, "Bloom filter bitset length should be larger than 0");
 
-    // Add number of bytes.
-    inputs.add(BytesInput.fromInt(bitset.length));
+    // Write number of bytes of bitset.
+    out.write(BytesUtils.intToBytes(bitset.length));
 
-    // Add hash strategy
-    inputs.add(BytesInput.fromInt(this.hash.ordinal()));
+    // Write hash strategy
+    out.write(BytesUtils.intToBytes(this.hash.ordinal()));
 
-    // Add bloom filter algorithm
-    inputs.add(BytesInput.fromInt(this.algorithm.ordinal()));
+    // Write algorithm
+    out.write(BytesUtils.intToBytes(this.algorithm.ordinal()));
 
-    // Add bitset.
-    inputs.add(BytesInput.from(bitset, 0, bitset.length));
-
-    return BytesInput.concat(inputs);
+    // Write bitset
+    out.write(bitset);
   }
 
   private int[] setMask(int key) {
-    // The block based algorithm needs 8 odd SALT values to calculate index
-    // of bit to set in block.
+    // The block based algorithm needs 8 odd SALT values to calculate eight index
+    // of bit to set, one bit in 32-bit word.
     final int SALT[] = {0x47b6137b, 0x44974d91, 0x8824ad5b, 0xa2b7289d,
       0x705495c7, 0x2df1424b, 0x9efc4947, 0x5c6bfb31};
 
@@ -211,15 +209,13 @@ public class Bloom {
     int bucketIndex = (int)(hash >> 32) & (bitset.length / BYTES_PER_BUCKET - 1);
     int key = (int)hash;
 
-    // Calculate bit mask for bucket.
+    // Calculate mask for bucket.
     int mask[] = setMask(key);
 
     for (int i = 0; i < 8; i++) {
-      int bitsetIndex = bucketIndex * BYTES_PER_BUCKET + i * 4;
-      bitset[bitsetIndex] |= (byte)(mask[i] >>> 24);
-      bitset[bitsetIndex + 1] |= (byte)(mask[i] >>> 16);
-      bitset[bitsetIndex + 2] |= (byte)(mask[i] >>> 8);
-      bitset[bitsetIndex + 3] |= (byte)(mask[i]);
+      int value = intBuffer.get(bucketIndex * (BYTES_PER_BUCKET / 4) + i);
+      value |= mask[i];
+      intBuffer.put(bucketIndex * (BYTES_PER_BUCKET / 4) + i, value);
     }
   }
 
@@ -232,17 +228,11 @@ public class Bloom {
     int bucketIndex = (int)(hash >> 32) & (bitset.length / BYTES_PER_BUCKET - 1);
     int key = (int)hash;
 
-    // Calculate bit mask for bucket.
+    // Calculate mask for bucket.
     int mask[] = setMask(key);
 
     for (int i = 0; i < 8; i++) {
-      byte set = 0;
-      int bitsetIndex = bucketIndex * BYTES_PER_BUCKET + i * 4;
-      set |= bitset[bitsetIndex] & ((byte)(mask[i] >>> 24));
-      set |= bitset[bitsetIndex + 1] & ((byte)(mask[i] >>> 16));
-      set |= bitset[bitsetIndex + 2] & ((byte)(mask[i] >>> 8));
-      set |= bitset[bitsetIndex + 3] & ((byte)mask[i]);
-      if (0 == set) {
+      if (0 == (intBuffer.get(bucketIndex * (BYTES_PER_BUCKET / 4) + i) & mask[i])) {
         return false;
       }
     }
@@ -258,7 +248,7 @@ public class Bloom {
    */
   public static int optimalNumOfBits(long n, double p) {
     Preconditions.checkArgument((p > 0.0 && p < 1.0),
-      "FPP should be less than 1.0 and great than 0.0");
+      "DEFAULT_FPP should be less than 1.0 and great than 0.0");
 
     final double M = -8 * n / Math.log(1 - Math.pow(p, 1.0 / 8));
     final double MAX = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE << 3;
@@ -410,7 +400,7 @@ public class Bloom {
    */
   public void flush() {
     if (elements != null && bitset == null) {
-      initBitset(optimalNumOfBits(elements.size(), FPP) / 8);
+      initBitset(optimalNumOfBits(elements.size(), DEFAULT_FPP) / 8);
 
       for (long hash : elements) {
         addElement(hash);
