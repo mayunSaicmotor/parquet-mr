@@ -50,7 +50,7 @@ public class ParquetProperties {
   public static final boolean DEFAULT_ESTIMATE_ROW_COUNT_FOR_PAGE_SIZE_CHECK = true;
   public static final int DEFAULT_MINIMUM_RECORD_COUNT_FOR_CHECK = 100;
   public static final int DEFAULT_MAXIMUM_RECORD_COUNT_FOR_CHECK = 10000;
-  public static final int DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE = 16 * 1024 * 1024;
+  public static final int DEFAULT_MAXIMUM_BLOOM_FILTER_BYTES = 16 * 1024 * 1024;
 
   public static final ValuesWriterFactory DEFAULT_VALUES_WRITER_FACTORY = new DefaultValuesWriterFactory();
 

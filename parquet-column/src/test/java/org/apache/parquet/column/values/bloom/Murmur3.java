@@ -59,7 +59,7 @@ public class Murmur3 {
    * @param data - input byte array
    * @return - hashcode
    */
-  public static int hash32(byte[] data) {
+  private static int hash32(byte[] data) {
     return hash32(data, data.length, DEFAULT_SEED);
   }
 
@@ -71,7 +71,7 @@ public class Murmur3 {
    * @param seed   - seed. (default 0)
    * @return - hashcode
    */
-  public static int hash32(byte[] data, int length, int seed) {
+  private static int hash32(byte[] data, int length, int seed) {
     int hash = seed;
     final int nblocks = length >> 2;
 
@@ -143,58 +143,8 @@ public class Murmur3 {
    * @return - hashcode
    */
   public static long hash64(byte[] data, int length, int seed) {
-    long hash = seed;
-    final int nblocks = length >> 3;
-
-    // body
-    for (int i = 0; i < nblocks; i++) {
-      final int i8 = i << 3;
-      long k = ((long) data[i8] & 0xff)
-        | (((long) data[i8 + 1] & 0xff) << 8)
-        | (((long) data[i8 + 2] & 0xff) << 16)
-        | (((long) data[i8 + 3] & 0xff) << 24)
-        | (((long) data[i8 + 4] & 0xff) << 32)
-        | (((long) data[i8 + 5] & 0xff) << 40)
-        | (((long) data[i8 + 6] & 0xff) << 48)
-        | (((long) data[i8 + 7] & 0xff) << 56);
-
-      // mix functions
-      k *= C1;
-      k = Long.rotateLeft(k, R1);
-      k *= C2;
-      hash ^= k;
-      hash = Long.rotateLeft(hash, R2) * M + N1;
-    }
-
-    // tail
-    long k1 = 0;
-    int tailStart = nblocks << 3;
-    switch (length - tailStart) {
-      case 7:
-        k1 ^= ((long) data[tailStart + 6] & 0xff) << 48;
-      case 6:
-        k1 ^= ((long) data[tailStart + 5] & 0xff) << 40;
-      case 5:
-        k1 ^= ((long) data[tailStart + 4] & 0xff) << 32;
-      case 4:
-        k1 ^= ((long) data[tailStart + 3] & 0xff) << 24;
-      case 3:
-        k1 ^= ((long) data[tailStart + 2] & 0xff) << 16;
-      case 2:
-        k1 ^= ((long) data[tailStart + 1] & 0xff) << 8;
-      case 1:
-        k1 ^= ((long) data[tailStart] & 0xff);
-        k1 *= C1;
-        k1 = Long.rotateLeft(k1, R1);
-        k1 *= C2;
-        hash ^= k1;
-    }
-
-    // finalization
-    hash ^= length;
-    hash = fmix64(hash);
-
-    return hash;
+    long[] hashes = hash128(data, length, seed);
+    return hashes[0];
   }
 
   /**
@@ -203,7 +153,7 @@ public class Murmur3 {
    * @param data - input byte array
    * @return - hashcode (2 longs)
    */
-  public static long[] hash128(byte[] data) {
+  private static long[] hash128(byte[] data) {
     return hash128(data, data.length, DEFAULT_SEED);
   }
 
@@ -215,7 +165,7 @@ public class Murmur3 {
    * @param seed   - seed. (default is 0)
    * @return - hashcode (2 longs)
    */
-  public static long[] hash128(byte[] data, int length, int seed) {
+  private static long[] hash128(byte[] data, int length, int seed) {
     long h1 = seed;
     long h2 = seed;
     final int nblocks = length >> 4;

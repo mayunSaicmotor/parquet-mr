@@ -148,8 +148,8 @@ public class Bloom {
       numBytes = Integer.highestOneBit(numBytes) << 1;
     }
 
-    if (numBytes > ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE) {
-      numBytes = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE;
+    if (numBytes > ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_BYTES || numBytes < 0) {
+      numBytes = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_BYTES;
     }
 
     this.bitset = new byte[numBytes];
@@ -162,7 +162,7 @@ public class Bloom {
    * @param out output stream to write
    */
   public void writeTo(OutputStream out) throws IOException {
-    Preconditions.checkArgument(bitset.length > 0, "Bloom filter bitset length should be larger than 0");
+    Preconditions.checkArgument(bitset != null, "Bloom filter bitset has not create yet.");
 
     // Write number of bytes of bitset.
     out.write(BytesUtils.intToBytes(bitset.length));
@@ -251,7 +251,7 @@ public class Bloom {
       "DEFAULT_FPP should be less than 1.0 and great than 0.0");
 
     final double M = -8 * n / Math.log(1 - Math.pow(p, 1.0 / 8));
-    final double MAX = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE << 3;
+    final double MAX = ParquetProperties.DEFAULT_MAXIMUM_BLOOM_FILTER_BYTES << 3;
     int numBits = (int)M;
 
     // Handle overflow.
@@ -407,6 +407,7 @@ public class Bloom {
       }
 
       elements.clear();
+      elements = null;
     }
   }
 }
