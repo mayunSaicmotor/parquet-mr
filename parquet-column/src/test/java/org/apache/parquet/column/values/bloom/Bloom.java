@@ -18,7 +18,6 @@
  */
 package org.apache.parquet.column.values.bloom;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
@@ -32,7 +31,6 @@ import com.google.common.hash.HashFunction;
 import org.apache.parquet.Preconditions;
 import org.apache.parquet.bytes.*;
 import org.apache.parquet.column.ParquetProperties;
-import org.apache.parquet.io.ParquetEncodingException;
 import org.apache.parquet.io.api.Binary;
 
 
@@ -322,7 +320,7 @@ public class Bloom {
   public long hash(int value) {
     ByteBuffer plain = ByteBuffer.allocate(Integer.SIZE/Byte.SIZE);
     plain.order(ByteOrder.LITTLE_ENDIAN).putInt(value);
-    return hashFunction.hashBytes(plain).asLong();
+    return hashFunction.hashBytes(plain.array()).asLong();
   }
 
   /**
@@ -333,7 +331,7 @@ public class Bloom {
   public long hash(long value) {
     ByteBuffer plain = ByteBuffer.allocate(Long.SIZE/Byte.SIZE);
     plain.order(ByteOrder.LITTLE_ENDIAN).putLong(value);
-    return hashFunction.hashBytes(plain).asLong();
+    return hashFunction.hashBytes(plain.array()).asLong();
   }
 
   /**
@@ -344,7 +342,7 @@ public class Bloom {
   public long hash(double value) {
     ByteBuffer plain = ByteBuffer.allocate(Double.SIZE/Byte.SIZE);
     plain.order(ByteOrder.LITTLE_ENDIAN).putDouble(value);
-    return hashFunction.hashBytes(plain).asLong();
+    return hashFunction.hashBytes(plain.array()).asLong();
   }
 
   /**
@@ -355,7 +353,7 @@ public class Bloom {
   public long hash(float value) {
     ByteBuffer plain = ByteBuffer.allocate(Float.SIZE/Byte.SIZE);
     plain.order(ByteOrder.LITTLE_ENDIAN).putFloat(value);
-    return hashFunction.hashBytes(plain).asLong();
+    return hashFunction.hashBytes(plain.array()).asLong();
   }
 
   /**
@@ -364,7 +362,7 @@ public class Bloom {
    * @return hash result
    */
   public long hash(Binary value) {
-      return hashFunction.hashBytes(value.toByteBuffer()).asLong();
+      return hashFunction.hashBytes(value.toByteBuffer().array()).asLong();
   }
 
   /**
