@@ -24,8 +24,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
-import org.apache.parquet.bytes.BytesUtils;
 import org.apache.parquet.column.values.RandomStr;
 import org.apache.parquet.io.api.Binary;
 import org.junit.Test;
@@ -37,7 +37,7 @@ import static org.junit.Assert.assertTrue;
 public class TestBloom {
   @Test
   public void testIntBloom () throws IOException {
-    Bloom bloom = new Bloom(279, Bloom.HASH.MURMUR3_X64_128, Bloom.ALGORITHM.BLOCK);
+    Bloom bloom = new Bloom(279);
     assertEquals("bloom filter size should be adjust to 512 bytes if input bytes is 279 bytes",
       bloom.getBufferedSize(), 512);
 
@@ -57,7 +57,7 @@ public class TestBloom {
     byte[] bitset = new byte[length];
     bloomBuffer.get(bitset);
 
-    bloom = new Bloom(bitset, Bloom.HASH.values()[hash], Bloom.ALGORITHM.values()[algorithm]);
+    bloom = new Bloom(bitset);
 
     for(int i = 0; i < 10; i++) {
       assertTrue(bloom.find(bloom.hash(i)));
@@ -66,13 +66,11 @@ public class TestBloom {
 
   @Test
   public void testBinaryBloom() throws IOException {
-    Bloom binaryBloom = new Bloom(
-      0,
-      Bloom.HASH.MURMUR3_X64_128,
-      Bloom.ALGORITHM.BLOCK);
+    final long SEED = 104729;
+    Bloom binaryBloom = new Bloom(0);
 
     List<String> strings = new ArrayList<>();
-    RandomStr randomStr = new RandomStr();
+    RandomStr randomStr = new RandomStr(new Random(SEED));
     for(int i = 0; i < 100000; i++) {
       String str = randomStr.get(10);
       strings.add(str);
@@ -93,7 +91,7 @@ public class TestBloom {
     byte[] bitset = new byte[length];
     bloomBuffer.get(bitset);
 
-    binaryBloom = new Bloom(ByteBuffer.wrap(bitset), Bloom.HASH.values()[hash], Bloom.ALGORITHM.values()[algorithm]);
+    binaryBloom = new Bloom(bitset);
 
     for(int i = 0; i < strings.size(); i++) {
       assertTrue(binaryBloom.find(binaryBloom.hash(Binary.fromString(strings.get(i)))));
@@ -110,20 +108,5 @@ public class TestBloom {
 
     // exist should be probably less than 1000 according default FPP 0.01.
     assertTrue(exist < 1200);
-  }
-
-  @Test
-  public void testMurmur3() throws IOException {
-    byte[] testBytes1 = {0x12};
-    long hash64 = Murmur3.hash64(testBytes1);
-    assertEquals(hash64, -2298819731814176267l);
-
-    byte[] testBytes2 = {0x12, 0x34, 0x56, 0x78};
-    hash64 = Murmur3.hash64(testBytes2);
-    assertEquals(hash64, 9026178559051508040l);
-
-    byte[] testBytes3 = {1, 2, 3, 4, 5, 6, 7, 8};
-    hash64 = Murmur3.hash64(testBytes3);
-    assertEquals(hash64, -1833705417010916211l);
   }
 }
