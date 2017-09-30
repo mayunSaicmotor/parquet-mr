@@ -104,6 +104,11 @@ public class CheckParquet251Command extends BaseCommand {
             public boolean apply(@Nullable ColumnDescriptor input) {
               return input != null && input.getType() == BINARY;
             }
+
+            @Override
+            public boolean test(@Nullable ColumnDescriptor input) {
+              return apply(input);
+            }
           }));
 
       // now check to see if the data is actually corrupt

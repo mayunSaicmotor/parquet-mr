@@ -361,7 +361,7 @@ public class Bloom {
    * @return hash result
    */
   public long hash(Binary value) {
-      return hashFunction.hashBytes(value.getBytes()).asLong();
+      return hashFunction.hashBytes(value.toByteBuffer()).asLong();
   }
 
   /**
