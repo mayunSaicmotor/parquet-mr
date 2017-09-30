@@ -382,12 +382,6 @@ public class Bloom {
    * @return false if value is definitely not in set, and true means PROBABLY in set.
    */
   public boolean find(long hash) {
-    // Elements hashes are in cache, flush them firstly.
-    if (elementsHashCache != null && !elementsHashCache.isEmpty()) {
-      flush();
-    }
-
-    // No elements yet.
     if (bitset == null) {
       return false;
     }
