@@ -67,7 +67,7 @@ public class TestBloom {
   @Test
   public void testBinaryBloom() throws IOException {
     final long SEED = 104729;
-    Bloom binaryBloom = new Bloom(0);
+    Bloom binaryBloom = new Bloom(Bloom.optimalNumOfBits(100000, 0.01));
 
     List<String> strings = new ArrayList<>();
     RandomStr randomStr = new RandomStr(new Random(SEED));
@@ -76,7 +76,6 @@ public class TestBloom {
       strings.add(str);
       binaryBloom.insert(binaryBloom.hash(Binary.fromString(str)));
     }
-    binaryBloom.flush();
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream(
       (int)binaryBloom.getBufferedSize() + binaryBloom.HEADER_SIZE);

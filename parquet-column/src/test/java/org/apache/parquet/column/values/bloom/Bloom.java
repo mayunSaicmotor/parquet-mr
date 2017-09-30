@@ -23,8 +23,6 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.IntBuffer;
-import java.util.HashSet;
-import java.util.Set;
 
 import com.google.common.hash.Hashing;
 import com.google.common.hash.HashFunction;
@@ -83,9 +81,6 @@ public class Bloom {
   // A integer array buffer of underlying bitset help setting bits.
   private IntBuffer intBuffer;
 
-  // A cache to store column distinct value represented by its hash.
-  private Set<Long> elementsHashCache;
-
   // Hash function use to compute hash for column value.
   private HashFunction hashFunction;
 
@@ -116,11 +111,7 @@ public class Bloom {
    * @param algorithm The algorithm of bloom filter.
    */
   private Bloom(int numBytes, HashStrategy hashStrategy, Algorithm algorithm) {
-    if (numBytes != 0) {
-      initBitset(numBytes);
-    } else {
-      this.elementsHashCache = new HashSet<>();
-    }
+    initBitset(numBytes);
 
     switch (hashStrategy) {
       case MURMUR3_X64_128:
@@ -195,11 +186,6 @@ public class Bloom {
    * @param out output stream to write
    */
   public void writeTo(OutputStream out) throws IOException {
-    // Flush the bloom filter firstly.
-    flush();
-
-    Preconditions.checkArgument(bitset != null, "Bloom filter bitset has not create yet.");
-
     // Write number of bytes of bitset.
     out.write(BytesUtils.intToBytes(bitset.length));
 
@@ -369,11 +355,7 @@ public class Bloom {
    * @param hash the hash of value to insert into bloom filter..
    */
   public void insert(long hash) {
-    if (bitset == null) {
-      elementsHashCache.add(hash);
-    } else {
       addElement(hash);
-    }
   }
 
   /**
@@ -382,26 +364,6 @@ public class Bloom {
    * @return false if value is definitely not in set, and true means PROBABLY in set.
    */
   public boolean find(long hash) {
-    if (bitset == null) {
-      return false;
-    }
-
     return contains(hash);
-  }
-
-  /**
-   * Bloom filter bitset can be created lazily, flush() will set bits for
-   * all elements in cache. If bitset was already created and set, it do nothing.
-   */
-  public void flush() {
-    if (elementsHashCache != null && bitset == null) {
-      initBitset(optimalNumOfBits(elementsHashCache.size(), DEFAULT_FPP) / 8);
-
-      for (long hash : elementsHashCache) {
-        addElement(hash);
-      }
-
-      elementsHashCache = null;
-    }
   }
 }
